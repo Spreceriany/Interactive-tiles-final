@@ -46,7 +46,9 @@ export function TileBarChart() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("http://localhost:3000/data");
+        const res = await fetch(
+          "https://interactive-tiles-final.onrender.com/data"
+        );
         const csvData = await res.text();
 
         // Parse CSV with PapaParse
