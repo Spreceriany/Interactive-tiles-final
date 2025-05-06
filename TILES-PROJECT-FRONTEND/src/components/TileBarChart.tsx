@@ -189,22 +189,22 @@ export function TileBarChart() {
   if (error) return <div>Error: {error}</div>;
 
   // Find max value index
-  const getMaxValueIndex = () => {
-    if (!wastedEnergyData || wastedEnergyData.length === 0) return -1;
-    let maxValue = -Infinity;
-    let maxIndex = -1;
+  // const getMaxValueIndex = () => {
+  //   if (!wastedEnergyData || wastedEnergyData.length === 0) return -1;
+  //   let maxValue = -Infinity;
+  //   let maxIndex = -1;
 
-    wastedEnergyData.forEach((item, index) => {
-      if (item.wastedEnergy > maxValue) {
-        maxValue = item.wastedEnergy;
-        maxIndex = index;
-      }
-    });
+  //   wastedEnergyData.forEach((item, index) => {
+  //     if (item.wastedEnergy > maxValue) {
+  //       maxValue = item.wastedEnergy;
+  //       maxIndex = index;
+  //     }
+  //   });
 
-    return maxIndex;
-  };
+  //   return maxIndex;
+  // };
 
-  const maxValueIndex = getMaxValueIndex();
+  // const maxValueIndex = getMaxValueIndex();
 
   return (
     <div className="w-full min-h-screen items-center flex  flex-col  justify-center">
@@ -226,7 +226,8 @@ export function TileBarChart() {
               left: 0,
               width: "50%",
               height: "100%",
-              backgroundColor: "#0036FF",
+              backgroundColor:
+                "linear-gradient(90deg,rgba(2, 0, 36, 1) 0%, rgba(9, 9, 121, 1) 35%, rgba(0, 212, 255, 1) 100%);",
               borderRadius: "40px",
               transition: "transform 0.3s ease",
               transform: view === "bar" ? "translateX(0)" : "translateX(100%)",
