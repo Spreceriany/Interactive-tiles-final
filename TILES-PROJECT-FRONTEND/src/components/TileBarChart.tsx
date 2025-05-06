@@ -20,6 +20,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart";
+
 export function TileBarChart() {
   const [data, setData] = useState<Record<string, any>[]>([]);
   const [wastedEnergyData, setWastedEnergyData] = useState<
@@ -28,6 +37,13 @@ export function TileBarChart() {
   const [selectedSignals, setSelectedSignals] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const chartConfig = {
+    desktop: {
+      label: "Desktop",
+      color: "var(--chart-1)",
+    },
+  } satisfies ChartConfig;
 
   // Define colors for each signal for consistency
 
@@ -165,58 +181,81 @@ export function TileBarChart() {
   if (loading) return <div>Loading data...</div>;
   if (error) return <div>Error: {error}</div>;
 
+  // Find max value index
+  const getMaxValueIndex = () => {
+    if (!wastedEnergyData || wastedEnergyData.length === 0) return -1;
+    let maxValue = -Infinity;
+    let maxIndex = -1;
+
+    wastedEnergyData.forEach((item, index) => {
+      if (item.wastedEnergy > maxValue) {
+        maxValue = item.wastedEnergy;
+        maxIndex = index;
+      }
+    });
+
+    return maxIndex;
+  };
+
+  const maxValueIndex = getMaxValueIndex();
+
   return (
     <div className="w-full space-y-4">
-      <Card>
+      <Card className="bg-backround  text-center">
         <CardHeader>
           <CardTitle>Wasted Energy by Signal</CardTitle>
           <CardDescription>
             Total wasted energy for each signal across all time steps
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="h-96">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={wastedEnergyData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="signal"
-                  label={{
-                    value: "Signal",
-                    position: "insideBottomRight",
-                    offset: -5,
-                  }}
-                />
-                <YAxis
-                  label={{
-                    value: "Wasted Energy",
-                    angle: -90,
-                    position: "insideLeft",
-                  }}
-                />
-                <Tooltip
-                  formatter={(value) => [`${value}`, "Wasted Energy"]}
-                  labelFormatter={(label) => `Signal ${label}`}
-                />
-                <Legend />
-                <Bar
-                  dataKey="wastedEnergy"
-                  name="Wasted Energy"
-                  fill="#8884d8"
-                  animationDuration={1500}
-                  label={{
-                    position: "top",
-                    formatter: (value: any) => (value > 5 ? value : ""),
-                  }}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
       </Card>
+      <ChartContainer
+        config={chartConfig}
+        className="min-h-[200px] w-full max-h-[400px]"
+      >
+        <BarChart
+          data={wastedEnergyData}
+          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey="signal"
+            tickLine={false}
+            tickMargin={10}
+            axisLine={false}
+            tickFormatter={(value) => value.slice(0, 3)}
+          />
+          <YAxis
+            label={{
+              value: "Wasted Energy per Tile",
+              angle: -90,
+              position: "insideLeft",
+            }}
+          />
+          <ChartTooltip
+            content={<ChartTooltipContent hideIndicator={true} />}
+          />
+          <ChartLegend content={<ChartLegendContent />} />
+          <defs>
+            <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(0, 212, 255, 1)" />
+              <stop offset="65%" stopColor="rgba(9, 9, 121, 1)" />
+              <stop offset="100%" stopColor="rgba(2, 0, 36, 1)" />
+            </linearGradient>
+          </defs>
+          <Bar
+            fill="url(#barGradient)"
+            radius={8}
+            dataKey="wastedEnergy"
+            name="Wasted Energy"
+            animationDuration={1200}
+            label={{
+              position: "top",
+              formatter: (value: any) => (value > 5 ? value : ""),
+            }}
+          />
+        </BarChart>
+      </ChartContainer>
 
       {selectedSignals.includes("Energy Lost") && (
         <Card>
