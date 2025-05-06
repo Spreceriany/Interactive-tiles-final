@@ -30,7 +30,6 @@ export function TileBarChart() {
   const [wastedEnergyData, setWastedEnergyData] = useState<
     { signal: string; wastedEnergy: number }[]
   >([]);
-  const [selectedSignals, setSelectedSignals] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -145,15 +144,9 @@ export function TileBarChart() {
               // Extract all signal column names for the time series data
 
               // Initialize with a few signals to avoid overwhelming the chart
-              const initialSelectedSignals = [
-                "Signal C",
-                "Signal D",
-                "Signal G",
-                "Energy Lost",
-              ];
 
               setData(processedData);
-              setSelectedSignals(initialSelectedSignals);
+              setWastedEnergyData(signals);
               setWastedEnergyData(signals);
 
               setLoading(false);
@@ -226,8 +219,7 @@ export function TileBarChart() {
               left: 0,
               width: "50%",
               height: "100%",
-              backgroundColor:
-                "linear-gradient(90deg,rgba(2, 0, 36, 1) 0%, rgba(9, 9, 121, 1) 35%, rgba(0, 212, 255, 1) 100%);",
+              backgroundColor: "#040631",
               borderRadius: "40px",
               transition: "transform 0.3s ease",
               transform: view === "bar" ? "translateX(0)" : "translateX(100%)",
