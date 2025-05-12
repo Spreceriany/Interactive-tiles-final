@@ -101,8 +101,6 @@ export function TileBarChart() {
                   return newRow;
                 });
 
-              console.log("Processed data:", results.data[62]);
-
               // Find and process the wasted energy data (at index 60 and 62)
               // The row at index 60 contains signal names (A, B, C...)
               // The row at index 62 contains the corresponding wasted energy values
@@ -202,10 +200,12 @@ export function TileBarChart() {
   // const maxValueIndex = getMaxValueIndex();
 
   return (
-    <div className="w-full min-h-screen items-center flex  flex-col  justify-center">
+    <div className="w-full min-h-[90vh] items-center flex  flex-col  justify-center px-4">
       <div className="flex justify-center mb-6 ">
         <div
+          className="text-primary"
           style={{
+            color: "var(--color-desktop)",
             display: "flex",
             borderRadius: "100px",
             backgroundColor: "#0036FF80",
@@ -224,6 +224,8 @@ export function TileBarChart() {
               backgroundColor: "#040631",
               borderRadius: "40px",
               transition: "transform 0.3s ease",
+              color: "var(--primary)",
+
               transform: view === "bar" ? "translateX(0)" : "translateX(100%)",
             }}
           />
@@ -236,6 +238,7 @@ export function TileBarChart() {
               alignItems: "center",
               zIndex: 1,
               cursor: "pointer",
+              color: "var(--primary)",
             }}
             onClick={toggleChart}
           >
@@ -251,6 +254,7 @@ export function TileBarChart() {
               zIndex: 1,
               cursor: "pointer",
               height: "100%",
+              color: "var(--primary)",
             }}
             onClick={toggleChart}
           >
