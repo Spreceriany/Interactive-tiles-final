@@ -1,26 +1,36 @@
 const express = require("express");
+const bodyParser = require("body-parser");
+const WebSocket = require("ws");
 const cors = require("cors");
-const path = require("path");
-const chokidar = require("chokidar");
+
 const app = express();
-const PORT = 3000;
-const fs = require("fs");
+const PORT = 4000;
 
-// Enable CORS
 app.use(cors());
+app.use(bodyParser.json());
 
-const csvPath = path.join(__dirname, "data.csv");
+const wss = new WebSocket.Server({ port: 4050 });
 
-// Serve the raw CSV file
-app.get("/data", (req, res) => {
-  res.sendFile(csvPath);
-});
+function broadcast(message) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
 
-// Watch for changes and log to console
-chokidar.watch(csvPath).on("change", () => {
-  console.log(`CSV file updated: ${new Date().toLocaleTimeString()}`);
+app.post("/webhook", (req, res) => {
+  const commit = req.body.head_commit?.message;
+  const repo = req.body.repository?.name;
+  console.log(`🚀 Push to ${repo}: ${commit}`);
+
+  // Notify frontend
+  broadcast("csv_updated");
+
+  res.sendStatus(200);
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Webhook server running on http://localhost:${PORT}`);
+  console.log(`WebSocket server running on ws://localhost:4050`);
 });
