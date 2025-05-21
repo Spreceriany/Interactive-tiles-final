@@ -25,6 +25,8 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart";
 
+import { createClient } from "@supabase/supabase-js";
+
 export function TileBarChart() {
   const [data, setData] = useState<Record<string, any>[]>([]);
   const [wastedEnergyData, setWastedEnergyData] = useState<
@@ -34,6 +36,12 @@ export function TileBarChart() {
   const [error, setError] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [view, setView] = useState("bar");
+
+  const supabase = createClient(
+    "https://wfrzbyvbralxrdpvtnsp.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmcnpieXZicmFseHJkcHZ0bnNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzczMDA4OCwiZXhwIjoyMDYzMzA2MDg4fQ.PW-P__mSJ1R8hvGPblFveWYQsMi2rN5BnTGo3HLleqQ"
+  );
+
   const chartConfig = {
     desktop: {
       label: "Desktop",
@@ -43,126 +51,148 @@ export function TileBarChart() {
 
   // Define colors for each signal for consistency
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch(
-          "https://interactive-tiles-final.onrender.com/data"
-        );
-        const csvData = await res.text();
+  const fetchData = async () => {
+    try {
+      const { data } = await supabase.storage
+        .from("csv-bucket")
+        .getPublicUrl("data.csv");
 
-        // Parse CSV with PapaParse
-        Papa.parse(csvData, {
-          header: true,
-          delimiter: ";", // Use semicolon as delimiter
-          skipEmptyLines: true,
-          transformHeader: (header) => header.trim(), // Trim whitespace from headers
-          complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
-            if (results.data && results.data.length > 0) {
-              const rawRow = results.data[62]; // Already parsed to an object
-              const signals = Object.entries(rawRow)
-                .filter(([key]) => key.startsWith("Signal ")) // Get only signal keys
-                .filter(([key]) => {
-                  const letter = key.replace("Signal ", "");
-                  return /^[A-S]$/.test(letter); // Only keep Signal A to Signal S
-                })
-                .map(([key, value]) => ({
-                  signal: key.replace("Signal ", ""), // Use just the letter for X-axis
-                  wastedEnergy:
-                    parseFloat(
-                      typeof value === "string" ? value.replace(",", ".") : "0"
-                    ) || 0,
-                }));
+      console.log(data.publicUrl);
 
-              // Process the time series data
-              const processedData = results.data
-                .filter(
-                  (row) =>
-                    row["Discrete Time"] !== undefined &&
-                    row["Discrete Time"] !== ""
-                )
-                .map((row) => {
-                  const newRow: Record<string, any> = {};
-                  // Convert comma decimals to periods for all numeric fields
-                  Object.keys(row).forEach((key) => {
-                    if (row[key] && typeof row[key] === "string") {
-                      // Skip empty cells and convert comma decimals to periods
-                      const value = row[key].replace(",", ".").trim();
-                      newRow[key] =
-                        value === ""
-                          ? 0
-                          : isNaN(Number(value))
-                          ? value
-                          : Number(value);
-                    } else {
-                      newRow[key] = row[key];
-                    }
-                  });
-                  return newRow;
+      // Parse CSV with PapaParse
+      Papa.parse(`${data.publicUrl}?t=${Date.now()}`, {
+        download: true,
+        header: true,
+        delimiter: ";", // Use semicolon as delimiter
+        skipEmptyLines: true,
+        transformHeader: (header) => header.trim(), // Trim whitespace from headers
+        complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
+          if (results.data && results.data.length > 0) {
+            const rawRow = results.data[62]; // Already parsed to an object
+            const signals = Object.entries(rawRow)
+              .filter(([key]) => key.startsWith("Signal ")) // Get only signal keys
+              .filter(([key]) => {
+                const letter = key.replace("Signal ", "");
+                return /^[A-S]$/.test(letter); // Only keep Signal A to Signal S
+              })
+              .map(([key, value]) => ({
+                signal: key.replace("Signal ", ""), // Use just the letter for X-axis
+                wastedEnergy:
+                  parseFloat(
+                    typeof value === "string" ? value.replace(",", ".") : "0"
+                  ) || 0,
+              }));
+
+            // Process the time series data
+            const processedData = results.data
+              .filter(
+                (row) =>
+                  row["Discrete Time"] !== undefined &&
+                  row["Discrete Time"] !== ""
+              )
+              .map((row) => {
+                const newRow: Record<string, any> = {};
+                // Convert comma decimals to periods for all numeric fields
+                Object.keys(row).forEach((key) => {
+                  if (row[key] && typeof row[key] === "string") {
+                    // Skip empty cells and convert comma decimals to periods
+                    const value = row[key].replace(",", ".").trim();
+                    newRow[key] =
+                      value === ""
+                        ? 0
+                        : isNaN(Number(value))
+                        ? value
+                        : Number(value);
+                  } else {
+                    newRow[key] = row[key];
+                  }
                 });
+                return newRow;
+              });
 
-              // Find and process the wasted energy data (at index 60 and 62)
-              // The row at index 60 contains signal names (A, B, C...)
-              // The row at index 62 contains the corresponding wasted energy values
-              let wastedEnergyBySignal: {
-                signal: string;
-                wastedEnergy: number;
-              }[] = [];
+            // Find and process the wasted energy data (at index 60 and 62)
+            // The row at index 60 contains signal names (A, B, C...)
+            // The row at index 62 contains the corresponding wasted energy values
+            let wastedEnergyBySignal: {
+              signal: string;
+              wastedEnergy: number;
+            }[] = [];
 
-              // Get all raw data rows (including those without headers)
-              const allRows = csvData.split("\n");
+            // Get all raw data rows (including those without headers)
+            const allRows = data.publicUrl.split("\n");
 
-              if (allRows.length >= 62) {
-                try {
-                  // Parse the row with signal letters (row 60)
-                  const signalLettersRow = allRows[60].split(";");
-                  // Parse the row with wasted energy values (row 62)
-                  const wastedEnergyRow = allRows[62].split(";");
+            if (allRows.length >= 62) {
+              try {
+                // Parse the row with signal letters (row 60)
+                const signalLettersRow = allRows[60].split(";");
+                // Parse the row with wasted energy values (row 62)
+                const wastedEnergyRow = allRows[62].split(";");
 
-                  // Map the letters to their corresponding values
-                  // Start from index 1 to skip the first column which contains the header
-                  for (let i = 1; i < signalLettersRow.length - 2; i++) {
-                    const signalLetter = signalLettersRow[i].trim();
-                    if (signalLetter && wastedEnergyRow[i]) {
-                      // Convert comma decimal to period
-                      const wastedEnergy =
-                        parseFloat(wastedEnergyRow[i].replace(",", ".")) || 0;
+                // Map the letters to their corresponding values
+                // Start from index 1 to skip the first column which contains the header
+                for (let i = 1; i < signalLettersRow.length - 2; i++) {
+                  const signalLetter = signalLettersRow[i].trim();
+                  if (signalLetter && wastedEnergyRow[i]) {
+                    // Convert comma decimal to period
+                    const wastedEnergy =
+                      parseFloat(wastedEnergyRow[i].replace(",", ".")) || 0;
 
-                      if (!isNaN(wastedEnergy)) {
-                        wastedEnergyBySignal.push({
-                          signal: signalLetter,
-                          wastedEnergy: wastedEnergy,
-                        });
-                      }
+                    if (!isNaN(wastedEnergy)) {
+                      wastedEnergyBySignal.push({
+                        signal: signalLetter,
+                        wastedEnergy: wastedEnergy,
+                      });
                     }
                   }
-                } catch (err) {
-                  console.error("Error parsing wasted energy rows:", err);
                 }
+              } catch (err) {
+                console.error("Error parsing wasted energy rows:", err);
               }
-
-              // Extract all signal column names for the time series data
-
-              // Initialize with a few signals to avoid overwhelming the chart
-
-              setData(processedData);
-              setWastedEnergyData(signals);
-              setWastedEnergyData(signals);
-
-              setLoading(false);
             }
-          },
-          error: (error: any) => {
-            console.error("Error parsing CSV:", error);
-            setError("Failed to parse CSV data");
+
+            // Extract all signal column names for the time series data
+
+            // Initialize with a few signals to avoid overwhelming the chart
+
+            setData(processedData);
+            setWastedEnergyData(signals);
+            setWastedEnergyData(signals);
+
             setLoading(false);
-          },
-        });
-      } catch (error) {
-        console.error("Error loading data:", error);
-        setError("Failed to load data");
-        setLoading(false);
+          }
+        },
+        error: (error: any) => {
+          console.error("Error parsing CSV:", error);
+          setError("Failed to parse CSV data");
+          setLoading(false);
+        },
+      });
+    } catch (error) {
+      console.error("Error loading data:", error);
+      setError("Failed to load data");
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const socket = new WebSocket("wss://interactive-tiles-final.onrender.com");
+
+    socket.onopen = () => {
+      console.log("✅ WebSocket connected");
+    };
+
+    socket.onmessage = (event) => {
+      if (event.data === "csv_updated") {
+        console.log("🔁 CSV updated, refetching...");
+        fetchData();
       }
+    };
+    socket.onerror = (err) => {
+      console.error("❌ WebSocket error:", err);
+    };
+
+    socket.onclose = () => {
+      console.log("🔌 WebSocket disconnected");
     };
 
     fetchData();
@@ -180,24 +210,6 @@ export function TileBarChart() {
 
   if (loading) return <div>Loading data...</div>;
   if (error) return <div>Error: {error}</div>;
-
-  // Find max value index
-  // const getMaxValueIndex = () => {
-  //   if (!wastedEnergyData || wastedEnergyData.length === 0) return -1;
-  //   let maxValue = -Infinity;
-  //   let maxIndex = -1;
-
-  //   wastedEnergyData.forEach((item, index) => {
-  //     if (item.wastedEnergy > maxValue) {
-  //       maxValue = item.wastedEnergy;
-  //       maxIndex = index;
-  //     }
-  //   });
-
-  //   return maxIndex;
-  // };
-
-  // const maxValueIndex = getMaxValueIndex();
 
   return (
     <div className="w-full min-h-[90vh] items-center flex  flex-col  justify-center px-4">
@@ -347,12 +359,7 @@ export function TileBarChart() {
                 }}
               >
                 <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="Discrete Time"
-                  name="Time"
-                  axisLine={false}
-                  label={{ value: "Time" }}
-                />
+                <XAxis dataKey="Discrete Time" name="Time" axisLine={false} />
                 <YAxis />
 
                 <ChartTooltip
