@@ -394,9 +394,6 @@ export function TileBarChart() {
                     radius={8}
                     dataKey="wastedEnergy"
                     name="Wasted Energy"
-                    label={{
-                      position: "top",
-                    }}
                   />
                 </BarChart>
               </ChartContainer>
