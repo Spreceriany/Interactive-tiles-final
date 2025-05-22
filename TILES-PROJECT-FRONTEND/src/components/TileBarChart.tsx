@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Papa from "papaparse";
 import {
   BarChart,
@@ -37,6 +37,9 @@ export function TileBarChart() {
   const [isAnimating, setIsAnimating] = useState(false);
   const [view, setView] = useState("bar");
 
+  const isMounted = useRef(false);
+  const fetchingLock = useRef(false); // To prevent concurrent fetches
+
   const supabase = createClient(
     "https://wfrzbyvbralxrdpvtnsp.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmcnpieXZicmFseHJkcHZ0bnNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzczMDA4OCwiZXhwIjoyMDYzMzA2MDg4fQ.PW-P__mSJ1R8hvGPblFveWYQsMi2rN5BnTGo3HLleqQ"
@@ -49,128 +52,146 @@ export function TileBarChart() {
     },
   } satisfies ChartConfig;
 
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   // Define colors for each signal for consistency
 
   const fetchData = async () => {
+    // `isChartAnimating` is set to `false` by the caller (socket.onmessage or initial load)
+    // `WorkspaceingLock` is acquired by the caller
+
+    console.log("fetchData: Called");
     try {
-      const { data } = await supabase.storage
+      const { data: publicUrlData } = await supabase.storage
         .from("csv-bucket")
         .getPublicUrl("data.csv");
 
-      console.log(data.publicUrl);
+      if (!publicUrlData) throw new Error("No public URL returned for CSV.");
 
-      // Parse CSV with PapaParse
-      Papa.parse(`${data.publicUrl}?t=${Date.now()}`, {
+      // Cache-busting for PapaParse download
+      const urlWithCacheBuster = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+      console.log("fetchData: Fetching from URL:", urlWithCacheBuster);
+
+      Papa.parse(urlWithCacheBuster, {
         download: true,
         header: true,
-        delimiter: ";", // Use semicolon as delimiter
+        delimiter: ";",
         skipEmptyLines: true,
-        transformHeader: (header) => header.trim(), // Trim whitespace from headers
+        transformHeader: (header) => header.trim(),
+        dynamicTyping: false, // Important: handle type conversion manually and consistently
         complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
+          console.log("fetchData: Papa.parse complete");
+          if (!isMounted.current) {
+            console.log(
+              "fetchData: Component unmounted, aborting Papa.parse complete callback."
+            );
+            fetchingLock.current = false; // Release lock if component unmounted during parse
+            return;
+          }
+
+          if (results.errors.length > 0) {
+            console.error("fetchData: Papa.parse errors:", results.errors);
+            setError(`Failed to parse CSV: ${results.errors[0].message}`);
+            setLoading(false);
+            fetchingLock.current = false; // Release lock
+            return;
+          }
+
           if (results.data && results.data.length > 0) {
-            const rawRow = results.data[62]; // Already parsed to an object
-            const signals = Object.entries(rawRow)
-              .filter(([key]) => key.startsWith("Signal ")) // Get only signal keys
-              .filter(([key]) => {
-                const letter = key.replace("Signal ", "");
-                return /^[A-S]$/.test(letter); // Only keep Signal A to Signal S
-              })
+            // Ensure you are targeting the correct row for signals, checking length
+            const signalRowIndex = 62; // Adjust if needed, ensure it's 0-indexed
+            if (results.data.length <= signalRowIndex) {
+              setError(
+                `CSV data does not have enough rows for signal data (index ${signalRowIndex}). Found ${results.data.length} rows.`
+              );
+              setLoading(false);
+              fetchingLock.current = false;
+              return;
+            }
+            const rawRow = results.data[signalRowIndex];
+
+            const newSignals = Object.entries(rawRow)
+              .filter(([key]) => key.startsWith("Signal "))
+              .filter(([key]) => /^[A-S]$/.test(key.replace("Signal ", "")))
               .map(([key, value]) => ({
-                signal: key.replace("Signal ", ""), // Use just the letter for X-axis
-                wastedEnergy:
-                  parseFloat(
-                    typeof value === "string" ? value.replace(",", ".") : "0"
-                  ) || 0,
+                signal: key.replace("Signal ", ""),
+                wastedEnergy: parseFloat(String(value).replace(",", ".")) || 0,
               }));
 
-            // Process the time series data
+            // Process the time series data (for AreaChart)
             const processedData = results.data
               .filter(
                 (row) =>
                   row["Discrete Time"] !== undefined &&
-                  row["Discrete Time"] !== ""
+                  String(row["Discrete Time"]).trim() !== ""
               )
               .map((row) => {
-                const newRow: Record<string, any> = {};
-                // Convert comma decimals to periods for all numeric fields
+                const newRow: Record<string, any> = {
+                  "Discrete Time": String(row["Discrete Time"]).trim(),
+                }; // Ensure Discrete Time is a string if it's the category
                 Object.keys(row).forEach((key) => {
-                  if (row[key] && typeof row[key] === "string") {
-                    // Skip empty cells and convert comma decimals to periods
-                    const value = row[key].replace(",", ".").trim();
-                    newRow[key] =
-                      value === ""
-                        ? 0
-                        : isNaN(Number(value))
-                        ? value
-                        : Number(value);
+                  if (key === "Discrete Time") return; // Already handled
+                  const cellValue = row[key];
+                  if (
+                    cellValue === null ||
+                    cellValue === undefined ||
+                    String(cellValue).trim() === ""
+                  ) {
+                    newRow[key] = 0; // Default for empty or missing numerics
+                  } else if (typeof cellValue === "string") {
+                    const val = String(cellValue).replace(",", ".").trim();
+                    newRow[key] = isNaN(Number(val)) ? val : Number(val);
                   } else {
-                    newRow[key] = row[key];
+                    newRow[key] = cellValue; // Assume it's already a number if not string
                   }
                 });
                 return newRow;
               });
 
-            // Find and process the wasted energy data (at index 60 and 62)
-            // The row at index 60 contains signal names (A, B, C...)
-            // The row at index 62 contains the corresponding wasted energy values
-            let wastedEnergyBySignal: {
-              signal: string;
-              wastedEnergy: number;
-            }[] = [];
-
-            // Get all raw data rows (including those without headers)
-            const allRows = data.publicUrl.split("\n");
-
-            if (allRows.length >= 62) {
-              try {
-                // Parse the row with signal letters (row 60)
-                const signalLettersRow = allRows[60].split(";");
-                // Parse the row with wasted energy values (row 62)
-                const wastedEnergyRow = allRows[62].split(";");
-
-                // Map the letters to their corresponding values
-                // Start from index 1 to skip the first column which contains the header
-                for (let i = 1; i < signalLettersRow.length - 2; i++) {
-                  const signalLetter = signalLettersRow[i].trim();
-                  if (signalLetter && wastedEnergyRow[i]) {
-                    // Convert comma decimal to period
-                    const wastedEnergy =
-                      parseFloat(wastedEnergyRow[i].replace(",", ".")) || 0;
-
-                    if (!isNaN(wastedEnergy)) {
-                      wastedEnergyBySignal.push({
-                        signal: signalLetter,
-                        wastedEnergy: wastedEnergy,
-                      });
-                    }
-                  }
-                }
-              } catch (err) {
-                console.error("Error parsing wasted energy rows:", err);
-              }
-            }
-
-            // Extract all signal column names for the time series data
-
-            // Initialize with a few signals to avoid overwhelming the chart
-
+            console.log(
+              "fetchData: Setting new data. isChartAnimating should be false here."
+            );
             setData(processedData);
-            setWastedEnergyData(signals);
-            setWastedEnergyData(signals);
+            setWastedEnergyData(newSignals); // This is the key data for the BarChart
+            setLoading(false);
 
+            // Mimic the manual button's animation trigger
+            setTimeout(() => {
+              if (isMounted.current) {
+                console.log(
+                  "fetchData: setTimeout callback - Setting isChartAnimating to true."
+                );
+              }
+            }, 50); // 50ms delay
+          } else {
+            setError("No data found in parsed CSV.");
             setLoading(false);
           }
+          fetchingLock.current = false; // Release lock
         },
         error: (error: any) => {
-          console.error("Error parsing CSV:", error);
-          setError("Failed to parse CSV data");
-          setLoading(false);
+          if (isMounted.current) {
+            console.error("fetchData: Papa.parse stream error:", error);
+            setError(`Failed to parse CSV stream: ${error.message}`);
+            setLoading(false);
+          }
+          fetchingLock.current = false; // Release lock
         },
       });
-    } catch (error) {
-      console.error("Error loading data:", error);
-      setError("Failed to load data");
-      setLoading(false);
+    } catch (error: any) {
+      if (isMounted.current) {
+        console.error("fetchData: Error fetching or processing CSV:", error);
+        setError(`Failed to load data: ${error.message}`);
+        setLoading(false);
+        // Ensure animation is off on error if it was turned off before fetch
+        // setIsChartAnimating(false);
+      }
+      fetchingLock.current = false; // Release lock
     }
   };
 
@@ -183,8 +204,18 @@ export function TileBarChart() {
 
     socket.onmessage = (event) => {
       if (event.data === "csv_updated") {
-        console.log("🔁 CSV updated, refetching...");
-        fetchData();
+        if (!isMounted.current) return;
+
+        if (fetchingLock.current) {
+          console.log("WebSocket: Already fetching, update skipped.");
+          return;
+        }
+        fetchingLock.current = true; // Acquire lock
+
+        console.log(
+          "WebSocket: CSV updated, refetching... Setting isChartAnimating to false."
+        );
+        fetchData(); // Step 2 & 3 happen inside fetchData's callbacks
       }
     };
     socket.onerror = (err) => {
@@ -194,9 +225,42 @@ export function TileBarChart() {
     socket.onclose = () => {
       console.log("🔌 WebSocket disconnected");
     };
+    if (isMounted.current) {
+      if (fetchingLock.current) return; // Should not happen on initial mount
+      fetchingLock.current = true;
+      console.log("Initial load: Setting isChartAnimating to false.");
+      fetchData();
+    }
 
     fetchData();
   }, []);
+
+  // Inside your TileBarChart component
+
+  // Add this function
+  // const handleManualUpdate = () => {
+  //   console.log("Manual update triggered");
+
+  //   // Create some new data based on the old data
+  //   const manualNewData = wastedEnergyData.map((bar, index) => ({
+  //     ...bar,
+  //     // Ensure values actually change significantly for a visible animation
+  //     wastedEnergy: Math.max(
+  //       0,
+  //       bar.wastedEnergy + (index % 2 === 0 ? 10 : -10) * Math.random() * 5 + 5
+  //     ),
+  //   }));
+
+  //   setWastedEnergyData(manualNewData); // Step 2: Set new data (while animation is still "off" for this render pass)
+  //   // setLoading(false); // if your loading state is involved
+
+  //   // Step 3: Turn animation ON in the next tick
+  //   setTimeout(() => {
+  //     console.log("Setting isChartAnimating to true for manual update");
+  //   }, 50); // A small delay (e.g., 50ms)
+  // };
+
+  // In your JSX, add this button somewhere visible:
 
   const toggleChart = () => {
     setIsAnimating(true);
@@ -330,10 +394,8 @@ export function TileBarChart() {
                     radius={8}
                     dataKey="wastedEnergy"
                     name="Wasted Energy"
-                    animationDuration={1200}
                     label={{
                       position: "top",
-                      formatter: (value: any) => (value > 5 ? value : ""),
                     }}
                   />
                 </BarChart>
